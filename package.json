@@ -1,0 +1,94 @@
+{
+  "name": "soundstage-media-server",
+  "version": "1.0.0",
+  "description": "A self-hosted media server for movies, TV shows, music and photos",
+  "main": "electron.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "node --watch server/index.js",
+    "client": "cd client && npm run dev",
+    "build": "cd client && npm run build",
+    "start": "NODE_ENV=production node server/index.js",
+    "electron": "electron .",
+    "electron:dev": "concurrently \"npm run server\" \"npm run client\" \"sleep 3 && electron .\"",
+    "rebuild:electron": "cd node_modules/better-sqlite3 && HOME=~/.electron-gyp npx node-gyp rebuild --target=28.3.3 --arch=arm64 --dist-url=https://electronjs.org/headers --runtime=electron",
+    "rebuild:node": "npm rebuild better-sqlite3",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "dist:mac": "npm run rebuild:electron && npm run build && npx electron-builder --mac --config.npmRebuild=false"
+  },
+  "build": {
+    "appId": "com.soundstage.mediaserver",
+    "productName": "Soundstage",
+    "copyright": "Copyright © 2025 Soundstage",
+    "asar": false,
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "electron.cjs",
+      "server/**/*",
+      "client/dist/**/*",
+      "data/**/*",
+      "Logos/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.entertainment",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "title": "Soundstage Media Server",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "AudioVideo"
+    }
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^12.5.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.1",
+    "express": "^4.18.2",
+    "fluent-ffmpeg": "^2.1.2",
+    "jsonwebtoken": "^9.0.2",
+    "mime-types": "^2.1.35",
+    "multer": "^1.4.5-lts.1",
+    "music-metadata": "^7.14.0",
+    "node-fetch": "^3.3.2",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.2",
+    "concurrently": "^8.2.2",
+    "electron": "^28.3.3",
+    "electron-builder": "^26.0.12"
+  }
+}
