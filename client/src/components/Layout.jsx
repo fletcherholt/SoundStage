@@ -45,7 +45,7 @@ export default function Layout({ children }) {
             </button>
             <Link to="/" className="flex items-center">
               <span 
-                className="text-3xl font-normal text-white hover:opacity-80 transition-opacity"
+                className="text-5xl font-normal text-white hover:opacity-80 transition-opacity leading-none"
                 style={{ fontFamily: 'Soundstage' }}
               >
                 S

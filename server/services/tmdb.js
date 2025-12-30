@@ -2,17 +2,9 @@ import fetch from 'node-fetch';
 import fs from 'fs';
 import path from 'path';
 import { DATA_DIR } from '../db/init.js';
-import db from '../db/init.js';
 
-// Function to get API key from settings or env
-function getApiKey() {
-  try {
-    const result = db.prepare('SELECT value FROM settings WHERE key = ?').get('tmdb_api_key');
-    return result?.value || process.env.TMDB_API_KEY || '';
-  } catch (e) {
-    return process.env.TMDB_API_KEY || '';
-  }
-}
+// Hardcoded TMDB API key
+const TMDB_API_KEY = '4c40b23502f3348c1a2afb55be7c7fc9';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
@@ -24,14 +16,8 @@ if (!fs.existsSync(CACHE_DIR)) {
 }
 
 async function tmdbRequest(endpoint, params = {}) {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    console.warn('TMDB_API_KEY not set - metadata fetching disabled');
-    return null;
-  }
-
   const url = new URL(`${TMDB_BASE_URL}${endpoint}`);
-  url.searchParams.set('api_key', apiKey);
+  url.searchParams.set('api_key', TMDB_API_KEY);
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null) {
       url.searchParams.set(key, value);
@@ -39,7 +25,7 @@ async function tmdbRequest(endpoint, params = {}) {
   });
 
   try {
-    const response = await fetch(url.toString());
+    const response = await fetch(url.toString(), { timeout: 10000 });
     if (!response.ok) {
       console.error(`TMDB API error: ${response.status}`);
       return null;

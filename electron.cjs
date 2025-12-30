@@ -7,6 +7,9 @@ let tray = null
 let serverProcess = null
 const isDev = !app.isPackaged
 
+// Flag to track if we're quitting (to prevent auto-restart during shutdown)
+app.isQuitting = false
+
 // Server configuration
 const SERVER_PORT = 3001
 
@@ -91,6 +94,18 @@ function startServer() {
       console.log(`Server process exited with code ${code}`)
       serverProcess = null
       updateTrayMenu()
+      
+      // Auto-restart server if it crashes unexpectedly (not during shutdown)
+      if (code !== 0 && !app.isQuitting) {
+        console.log('Server crashed, attempting restart in 2 seconds...')
+        setTimeout(() => {
+          if (!app.isQuitting) {
+            startServer().catch(err => {
+              console.error('Failed to restart server:', err)
+            })
+          }
+        }, 2000)
+      }
     })
 
     checkServerReady().then((ready) => {
@@ -244,5 +259,6 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  app.isQuitting = true
   stopServer()
 })

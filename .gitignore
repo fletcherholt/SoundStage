@@ -5,3 +5,6 @@ client/node_modules/
 client/dist/
 *.log
 .DS_Store
+
+# Electron build outputs (too large for GitHub)
+dist-electron/

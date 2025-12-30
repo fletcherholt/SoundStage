@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import { 
@@ -8,9 +8,11 @@ import {
   Volume2, 
   VolumeX,
   Maximize,
+  Minimize,
   SkipBack,
   SkipForward,
-  Settings
+  Settings,
+  AlertCircle
 } from 'lucide-react'
 
 export default function Player() {
@@ -20,49 +22,82 @@ export default function Player() {
   const videoRef = useRef(null)
   const containerRef = useRef(null)
   const progressRef = useRef(null)
+  const controlsTimeoutRef = useRef(null)
 
   const [media, setMedia] = useState(null)
   const [episode, setEpisode] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [volume, setVolume] = useState(1)
   const [muted, setMuted] = useState(false)
   const [showControls, setShowControls] = useState(true)
-  const [controlsTimeout, setControlsTimeout] = useState(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [buffering, setBuffering] = useState(false)
 
   const episodeId = searchParams.get('episode')
 
   useEffect(() => {
     fetchMedia()
+    
+    // Fullscreen change listener
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    
     return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
       // Save progress on unmount
-      if (videoRef.current && media) {
-        saveProgress()
-      }
+      saveProgress()
     }
   }, [id, episodeId])
 
+  // Auto-hide controls
+  const resetControlsTimeout = useCallback(() => {
+    setShowControls(true)
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current)
+    }
+    controlsTimeoutRef.current = setTimeout(() => {
+      if (playing) setShowControls(false)
+    }, 3000)
+  }, [playing])
+
   useEffect(() => {
-    // Auto-hide controls
-    const handleMouseMove = () => {
-      setShowControls(true)
-      if (controlsTimeout) clearTimeout(controlsTimeout)
-      
-      const timeout = setTimeout(() => {
-        if (playing) setShowControls(false)
-      }, 3000)
-      
-      setControlsTimeout(timeout)
+    const handleMouseMove = () => resetControlsTimeout()
+    const handleKeyDown = (e) => {
+      resetControlsTimeout()
+      // Keyboard shortcuts
+      if (e.code === 'Space') {
+        e.preventDefault()
+        togglePlay()
+      } else if (e.code === 'ArrowLeft') {
+        skip(-10)
+      } else if (e.code === 'ArrowRight') {
+        skip(10)
+      } else if (e.code === 'KeyM') {
+        toggleMute()
+      } else if (e.code === 'KeyF') {
+        toggleFullscreen()
+      } else if (e.code === 'Escape' && isFullscreen) {
+        document.exitFullscreen()
+      }
     }
 
     document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('keydown', handleKeyDown)
+    
     return () => {
       document.removeEventListener('mousemove', handleMouseMove)
-      if (controlsTimeout) clearTimeout(controlsTimeout)
+      document.removeEventListener('keydown', handleKeyDown)
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current)
+      }
     }
-  }, [playing, controlsTimeout])
+  }, [playing, resetControlsTimeout, isFullscreen])
 
   const fetchMedia = async () => {
     try {
@@ -73,28 +108,24 @@ export default function Player() {
         const ep = data.episodes.find(e => e.id === episodeId)
         setEpisode(ep)
       }
-
-      // Restore progress
-      if (data.progress?.position) {
-        setTimeout(() => {
-          if (videoRef.current) {
-            videoRef.current.currentTime = data.progress.position
-          }
-        }, 500)
-      }
     } catch (error) {
       console.error('Failed to fetch media:', error)
+      setError('Failed to load media information')
     } finally {
       setLoading(false)
     }
   }
 
   const saveProgress = async () => {
-    if (!videoRef.current) return
+    if (!videoRef.current || !media) return
+    const currentPos = videoRef.current.currentTime
+    const totalDuration = videoRef.current.duration
+    if (!currentPos || !totalDuration) return
+    
     try {
       await api.post(`/media/${id}/progress`, {
-        position: Math.floor(videoRef.current.currentTime),
-        completed: videoRef.current.currentTime >= videoRef.current.duration - 10
+        position: Math.floor(currentPos),
+        completed: currentPos >= totalDuration - 30
       })
     } catch (e) {
       // Ignore errors
@@ -102,30 +133,45 @@ export default function Player() {
   }
 
   const getStreamUrl = () => {
+    // Use the API base URL for streaming
+    const baseUrl = window.location.origin
     if (episode) {
-      return `/api/stream/episode/${episode.id}`
+      return `${baseUrl}/api/stream/episode/${episode.id}`
     }
-    return `/api/stream/video/${id}`
+    return `${baseUrl}/api/stream/video/${id}`
   }
 
-  const togglePlay = () => {
+  const togglePlay = useCallback(() => {
     if (videoRef.current) {
       if (playing) {
         videoRef.current.pause()
       } else {
-        videoRef.current.play()
+        videoRef.current.play().catch(err => {
+          console.error('Play failed:', err)
+          setError('Failed to play video. Try clicking the play button.')
+        })
       }
     }
-  }
+  }, [playing])
 
-  const toggleMute = () => {
+  const toggleMute = useCallback(() => {
     if (videoRef.current) {
-      videoRef.current.muted = !muted
-      setMuted(!muted)
+      const newMuted = !muted
+      videoRef.current.muted = newMuted
+      setMuted(newMuted)
+    }
+  }, [muted])
+
+  const handleVolumeChange = (e) => {
+    const newVolume = parseFloat(e.target.value)
+    setVolume(newVolume)
+    if (videoRef.current) {
+      videoRef.current.volume = newVolume
+      setMuted(newVolume === 0)
     }
   }
 
-  const toggleFullscreen = () => {
+  const toggleFullscreen = useCallback(() => {
     if (containerRef.current) {
       if (document.fullscreenElement) {
         document.exitFullscreen()
@@ -133,19 +179,46 @@ export default function Player() {
         containerRef.current.requestFullscreen()
       }
     }
-  }
+  }, [])
 
   const handleProgressClick = (e) => {
     if (progressRef.current && videoRef.current) {
       const rect = progressRef.current.getBoundingClientRect()
       const pos = (e.clientX - rect.left) / rect.width
       videoRef.current.currentTime = pos * duration
+      saveProgress()
     }
   }
 
-  const skip = (seconds) => {
+  const skip = useCallback((seconds) => {
     if (videoRef.current) {
-      videoRef.current.currentTime += seconds
+      videoRef.current.currentTime = Math.max(0, Math.min(videoRef.current.currentTime + seconds, duration))
+    }
+  }, [duration])
+
+  const handleVideoError = (e) => {
+    console.error('Video error:', e)
+    const video = videoRef.current
+    if (video?.error) {
+      const errorMessages = {
+        1: 'Video loading aborted',
+        2: 'Network error while loading video',
+        3: 'Video decoding failed - format may not be supported',
+        4: 'Video format not supported by your browser'
+      }
+      setError(errorMessages[video.error.code] || 'Unknown video error')
+    } else {
+      setError('Failed to load video')
+    }
+  }
+
+  const handleLoadedMetadata = () => {
+    if (videoRef.current) {
+      setDuration(videoRef.current.duration)
+      // Restore progress after metadata loads
+      if (media?.progress?.position && media.progress.position > 30) {
+        videoRef.current.currentTime = media.progress.position
+      }
     }
   }
 
@@ -172,6 +245,7 @@ export default function Player() {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center">
         <div className="text-center">
+          <AlertCircle className="mx-auto text-red-500 mb-4" size={48} />
           <p className="text-white mb-4">Media not found</p>
           <button onClick={() => navigate(-1)} className="text-neutral-400 hover:text-white">
             Go back
@@ -188,20 +262,65 @@ export default function Player() {
   return (
     <div 
       ref={containerRef}
-      className="fixed inset-0 bg-black flex flex-col"
-      onClick={togglePlay}
+      className="fixed inset-0 bg-black flex flex-col cursor-none"
+      style={{ cursor: showControls ? 'default' : 'none' }}
     >
       {/* Video */}
       <video
         ref={videoRef}
         src={getStreamUrl()}
         className="w-full h-full object-contain"
+        onClick={togglePlay}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
-        onDurationChange={() => setDuration(videoRef.current?.duration || 0)}
-        onEnded={saveProgress}
+        onLoadedMetadata={handleLoadedMetadata}
+        onError={handleVideoError}
+        onWaiting={() => setBuffering(true)}
+        onCanPlay={() => setBuffering(false)}
+        onEnded={() => {
+          saveProgress()
+          setPlaying(false)
+        }}
+        playsInline
+        preload="metadata"
       />
+
+      {/* Buffering indicator */}
+      {buffering && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="w-16 h-16 border-4 border-white/30 border-t-white rounded-full animate-spin"></div>
+        </div>
+      )}
+
+      {/* Error display */}
+      {error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+          <div className="text-center p-6">
+            <AlertCircle className="mx-auto text-red-500 mb-4" size={48} />
+            <p className="text-white mb-4">{error}</p>
+            <div className="flex gap-4 justify-center">
+              <button 
+                onClick={() => {
+                  setError(null)
+                  if (videoRef.current) {
+                    videoRef.current.load()
+                  }
+                }}
+                className="px-4 py-2 bg-white text-black rounded hover:bg-neutral-200"
+              >
+                Retry
+              </button>
+              <button 
+                onClick={() => navigate(-1)} 
+                className="px-4 py-2 bg-neutral-700 text-white rounded hover:bg-neutral-600"
+              >
+                Go back
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Controls overlay */}
       <div 
@@ -277,18 +396,29 @@ export default function Player() {
                 <SkipForward className="text-white" size={20} />
               </button>
 
-              <button
-                onClick={toggleMute}
-                className="p-2 hover:bg-white/10 rounded transition-colors"
-              >
-                {muted ? (
-                  <VolumeX className="text-white" size={20} />
-                ) : (
-                  <Volume2 className="text-white" size={20} />
-                )}
-              </button>
+              <div className="flex items-center gap-2 group/volume">
+                <button
+                  onClick={toggleMute}
+                  className="p-2 hover:bg-white/10 rounded transition-colors"
+                >
+                  {muted || volume === 0 ? (
+                    <VolumeX className="text-white" size={20} />
+                  ) : (
+                    <Volume2 className="text-white" size={20} />
+                  )}
+                </button>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={muted ? 0 : volume}
+                  onChange={handleVolumeChange}
+                  className="w-0 group-hover/volume:w-20 transition-all duration-200 accent-white cursor-pointer"
+                />
+              </div>
 
-              <span className="text-white text-sm ml-2">
+              <span className="text-white text-sm ml-2 tabular-nums">
                 {formatTime(currentTime)} / {formatTime(duration)}
               </span>
             </div>
@@ -298,7 +428,11 @@ export default function Player() {
                 onClick={toggleFullscreen}
                 className="p-2 hover:bg-white/10 rounded transition-colors"
               >
-                <Maximize className="text-white" size={20} />
+                {isFullscreen ? (
+                  <Minimize className="text-white" size={20} />
+                ) : (
+                  <Maximize className="text-white" size={20} />
+                )}
               </button>
             </div>
           </div>

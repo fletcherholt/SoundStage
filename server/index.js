@@ -26,9 +26,37 @@ const dataDir = DATA_DIR;
 // Initialize database
 initDatabase();
 
+// Global error handlers to prevent crashes
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err.message);
+  console.error(err.stack);
+  // Don't exit - try to keep running
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit - try to keep running
+});
+
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Request timeout middleware
+app.use((req, res, next) => {
+  req.setTimeout(300000); // 5 minute timeout for long operations like scanning
+  res.setTimeout(300000);
+  next();
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Express error:', err.message);
+  if (res.headersSent) {
+    return next(err);
+  }
+  res.status(500).json({ error: 'Internal server error', message: err.message });
+});
 
 // Serve static cache files (thumbnails, metadata images)
 app.use('/cache', express.static(path.join(dataDir, 'cache')));

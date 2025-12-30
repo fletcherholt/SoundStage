@@ -1,12 +1,101 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import mime from 'mime-types';
 import db from '../db/init.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { transcodeVideo } from '../services/transcoder.js';
 
 const router = express.Router();
+
+// Mime type mapping for media files
+const getMimeType = (filePath) => {
+  const ext = path.extname(filePath).toLowerCase();
+  const mimeTypes = {
+    '.mp4': 'video/mp4',
+    '.webm': 'video/webm',
+    '.mkv': 'video/x-matroska',
+    '.avi': 'video/x-msvideo',
+    '.mov': 'video/quicktime',
+    '.m4v': 'video/x-m4v',
+    '.wmv': 'video/x-ms-wmv',
+    '.flv': 'video/x-flv',
+    '.mp3': 'audio/mpeg',
+    '.m4a': 'audio/mp4',
+    '.aac': 'audio/aac',
+    '.flac': 'audio/flac',
+    '.ogg': 'audio/ogg',
+    '.wav': 'audio/wav',
+    '.wma': 'audio/x-ms-wma',
+  };
+  return mimeTypes[ext] || 'application/octet-stream';
+};
+
+// Stream file with range support
+const streamFile = (req, res, filePath) => {
+  if (!fs.existsSync(filePath)) {
+    console.error(`File not found: ${filePath}`);
+    return res.status(404).json({ error: 'File not found on disk' });
+  }
+
+  const stat = fs.statSync(filePath);
+  const fileSize = stat.size;
+  const mimeType = getMimeType(filePath);
+  const range = req.headers.range;
+
+  console.log(`Streaming file: ${filePath}, Size: ${fileSize}, Range: ${range || 'none'}`);
+
+  // Set headers for streaming
+  res.setHeader('Accept-Ranges', 'bytes');
+  
+  if (range) {
+    const parts = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    
+    // Validate range
+    if (start >= fileSize || end >= fileSize || start > end) {
+      res.status(416).set('Content-Range', `bytes */${fileSize}`);
+      return res.end();
+    }
+    
+    const chunkSize = end - start + 1;
+    const file = fs.createReadStream(filePath, { start, end });
+    
+    file.on('error', (err) => {
+      console.error('Stream read error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Stream error' });
+      }
+    });
+    
+    res.writeHead(206, {
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Content-Length': chunkSize,
+      'Content-Type': mimeType,
+      'Cache-Control': 'no-cache',
+    });
+    
+    file.pipe(res);
+  } else {
+    // No range requested, send entire file
+    const file = fs.createReadStream(filePath);
+    
+    file.on('error', (err) => {
+      console.error('Stream read error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Stream error' });
+      }
+    });
+    
+    res.writeHead(200, {
+      'Content-Length': fileSize,
+      'Content-Type': mimeType,
+      'Cache-Control': 'no-cache',
+    });
+    
+    file.pipe(res);
+  }
+};
 
 // Stream video/audio file
 router.get('/video/:id', optionalAuth, async (req, res) => {
@@ -14,47 +103,14 @@ router.get('/video/:id', optionalAuth, async (req, res) => {
     const media = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id);
     
     if (!media) {
-      return res.status(404).json({ error: 'Media not found' });
+      return res.status(404).json({ error: 'Media not found in database' });
     }
 
-    const filePath = media.path;
-    
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-
-    const stat = fs.statSync(filePath);
-    const fileSize = stat.size;
-    const mimeType = mime.lookup(filePath) || 'video/mp4';
-    const range = req.headers.range;
-
-    if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      const chunkSize = end - start + 1;
-
-      const file = fs.createReadStream(filePath, { start, end });
-      const head = {
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': chunkSize,
-        'Content-Type': mimeType,
-      };
-
-      res.writeHead(206, head);
-      file.pipe(res);
-    } else {
-      const head = {
-        'Content-Length': fileSize,
-        'Content-Type': mimeType,
-      };
-      res.writeHead(200, head);
-      fs.createReadStream(filePath).pipe(res);
-    }
+    console.log(`Streaming video: ${media.title} from ${media.path}`);
+    streamFile(req, res, media.path);
   } catch (error) {
     console.error('Stream video error:', error);
-    res.status(500).json({ error: 'Streaming failed' });
+    res.status(500).json({ error: 'Streaming failed', details: error.message });
   }
 });
 
@@ -64,47 +120,14 @@ router.get('/episode/:id', optionalAuth, async (req, res) => {
     const episode = db.prepare('SELECT * FROM episodes WHERE id = ?').get(req.params.id);
     
     if (!episode) {
-      return res.status(404).json({ error: 'Episode not found' });
+      return res.status(404).json({ error: 'Episode not found in database' });
     }
 
-    const filePath = episode.path;
-    
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-
-    const stat = fs.statSync(filePath);
-    const fileSize = stat.size;
-    const mimeType = mime.lookup(filePath) || 'video/mp4';
-    const range = req.headers.range;
-
-    if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      const chunkSize = end - start + 1;
-
-      const file = fs.createReadStream(filePath, { start, end });
-      const head = {
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': chunkSize,
-        'Content-Type': mimeType,
-      };
-
-      res.writeHead(206, head);
-      file.pipe(res);
-    } else {
-      const head = {
-        'Content-Length': fileSize,
-        'Content-Type': mimeType,
-      };
-      res.writeHead(200, head);
-      fs.createReadStream(filePath).pipe(res);
-    }
+    console.log(`Streaming episode: ${episode.title} from ${episode.path}`);
+    streamFile(req, res, episode.path);
   } catch (error) {
     console.error('Stream episode error:', error);
-    res.status(500).json({ error: 'Streaming failed' });
+    res.status(500).json({ error: 'Streaming failed', details: error.message });
   }
 });
 
@@ -114,47 +137,14 @@ router.get('/track/:id', optionalAuth, async (req, res) => {
     const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(req.params.id);
     
     if (!track) {
-      return res.status(404).json({ error: 'Track not found' });
+      return res.status(404).json({ error: 'Track not found in database' });
     }
 
-    const filePath = track.path;
-    
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-
-    const stat = fs.statSync(filePath);
-    const fileSize = stat.size;
-    const mimeType = mime.lookup(filePath) || 'audio/mpeg';
-    const range = req.headers.range;
-
-    if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      const chunkSize = end - start + 1;
-
-      const file = fs.createReadStream(filePath, { start, end });
-      const head = {
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': chunkSize,
-        'Content-Type': mimeType,
-      };
-
-      res.writeHead(206, head);
-      file.pipe(res);
-    } else {
-      const head = {
-        'Content-Length': fileSize,
-        'Content-Type': mimeType,
-      };
-      res.writeHead(200, head);
-      fs.createReadStream(filePath).pipe(res);
-    }
+    console.log(`Streaming track: ${track.title} from ${track.path}`);
+    streamFile(req, res, track.path);
   } catch (error) {
     console.error('Stream track error:', error);
-    res.status(500).json({ error: 'Streaming failed' });
+    res.status(500).json({ error: 'Streaming failed', details: error.message });
   }
 });
 
