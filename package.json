@@ -1,6 +1,6 @@
 {
   "name": "soundstage-media-server",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A self-hosted media server for movies, TV shows, music and photos",
   "main": "electron.cjs",
   "type": "module",
