@@ -17,10 +17,6 @@ export default defineConfig({
       '/avatars': {
         target: 'http://localhost:3001',
         changeOrigin: true
-      },
-      '/fonts': {
-        target: 'http://localhost:3001',
-        changeOrigin: true
       }
     }
   }

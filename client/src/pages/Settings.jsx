@@ -11,11 +11,7 @@ import {
   Plus,
   Shield,
   Camera,
-  Check,
-  Key,
-  ExternalLink,
-  Eye,
-  EyeOff
+  Check
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
@@ -31,12 +27,6 @@ export default function Settings() {
   const [savingProfile, setSavingProfile] = useState(false)
   const fileInputRef = useRef(null)
 
-  // TMDB settings
-  const [tmdbApiKey, setTmdbApiKey] = useState('')
-  const [showApiKey, setShowApiKey] = useState(false)
-  const [savingTmdb, setSavingTmdb] = useState(false)
-  const [tmdbStatus, setTmdbStatus] = useState(null)
-
   useEffect(() => {
     fetchSettings()
   }, [])
@@ -47,18 +37,12 @@ export default function Settings() {
 
   const fetchSettings = async () => {
     try {
-      const [libRes, serverRes, settingsRes] = await Promise.all([
+      const [libRes, serverRes] = await Promise.all([
         api.get('/library'),
-        api.get('/settings/server'),
-        api.get('/settings')
+        api.get('/settings/server')
       ])
       setLibraries(libRes.data)
       setServerInfo(serverRes.data)
-      // Check if TMDB key is configured
-      if (settingsRes.data.tmdb_api_key) {
-        setTmdbApiKey(settingsRes.data.tmdb_api_key)
-        setTmdbStatus('configured')
-      }
     } catch (error) {
       console.error('Failed to fetch settings:', error)
     } finally {
@@ -85,21 +69,6 @@ export default function Settings() {
       setLibraries(libraries.filter(l => l.id !== libraryId))
     } catch (error) {
       alert('Failed to delete library')
-    }
-  }
-
-  const handleSaveTmdbKey = async () => {
-    if (!tmdbApiKey.trim()) return
-
-    setSavingTmdb(true)
-    try {
-      await api.put('/settings/tmdb_api_key', { value: tmdbApiKey.trim() })
-      setTmdbStatus('configured')
-      alert('TMDB API key saved. Rescan your libraries to fetch metadata.')
-    } catch (error) {
-      alert('Failed to save API key')
-    } finally {
-      setSavingTmdb(false)
     }
   }
 
@@ -259,65 +228,6 @@ export default function Settings() {
               <p className="text-neutral-500 mb-1">Node.js</p>
               <p className="text-white font-medium">{serverInfo.nodeVersion}</p>
             </div>
-          </div>
-        </section>
-      )}
-
-      {/* TMDB Settings (admin only) */}
-      {user?.isAdmin && (
-        <section className="bg-neutral-900 rounded-lg p-6 border border-neutral-800">
-          <div className="flex items-center gap-3 mb-5">
-            <Key className="text-white" size={22} />
-            <h2 className="text-xl font-semibold text-white">Metadata Provider</h2>
-          </div>
-
-          <div className="space-y-4">
-            <p className="text-neutral-400 text-sm">
-              To fetch movie and TV show metadata, you need a free TMDB API key.
-            </p>
-
-            <div className="flex gap-3">
-              <div className="flex-1 relative">
-                <input
-                  type={showApiKey ? 'text' : 'password'}
-                  value={tmdbApiKey}
-                  onChange={(e) => setTmdbApiKey(e.target.value)}
-                  placeholder="Enter your TMDB API key"
-                  className="w-full px-4 py-3 bg-neutral-950 border border-neutral-700 rounded-lg text-white placeholder-neutral-600 focus:border-white focus:outline-none pr-12"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white"
-                >
-                  {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-              <button
-                onClick={handleSaveTmdbKey}
-                disabled={savingTmdb || !tmdbApiKey.trim()}
-                className="px-6 py-3 bg-white hover:bg-neutral-200 text-black font-medium rounded-lg transition-all disabled:opacity-50"
-              >
-                {savingTmdb ? 'Saving...' : 'Save'}
-              </button>
-            </div>
-
-            {tmdbStatus === 'configured' && (
-              <p className="text-green-500 text-sm flex items-center gap-2">
-                <Check size={16} />
-                API key configured. Metadata will be fetched when scanning libraries.
-              </p>
-            )}
-
-            <a
-              href="https://www.themoviedb.org/settings/api"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 text-sm text-neutral-400 hover:text-white transition-colors"
-            >
-              Get a free API key from TMDB
-              <ExternalLink size={14} />
-            </a>
           </div>
         </section>
       )}

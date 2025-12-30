@@ -133,12 +133,11 @@ export default function Player() {
   }
 
   const getStreamUrl = () => {
-    // Use the API base URL for streaming
-    const baseUrl = window.location.origin
+    // Use relative path - Vite proxy handles /api routing
     if (episode) {
-      return `${baseUrl}/api/stream/episode/${episode.id}`
+      return `/api/stream/episode/${episode.id}`
     }
-    return `${baseUrl}/api/stream/video/${id}`
+    return `/api/stream/video/${id}`
   }
 
   const togglePlay = useCallback(() => {
